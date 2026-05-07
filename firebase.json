@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "site": "gen-lang-client-0108312258",
     "public": "dist",
     "ignore": [
       "firebase.json",
@@ -10,7 +11,7 @@
       {
         "source": "**",
         "run": {
-          "serviceId": "ventura-tc-gest-o-nr-1",
+          "serviceId": "nr-1-psicossocial",
           "region": "us-west2"
         }
       }
