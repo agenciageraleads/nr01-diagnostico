@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
-import { signInWithGoogle } from '../lib/firebase';
+import { signInWithGoogle, auth } from '../lib/firebase';
 import { useAuth } from '../hooks/useAuth';
 import { Shield, LogIn, AlertCircle } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -15,23 +15,46 @@ import { usePageTitle } from '../hooks/usePageTitle';
 
 export default function LoginPage() {
   usePageTitle('VTC - Acesso Restrito');
-  const { user, loading } = useAuth();
+  const { user, isAuthorized, loading } = useAuth();
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  if (loading) return null;
-  if (user) return <Navigate to="/dashboard" replace />;
+  // If already logged in and authorized, redirect to dashboard
+  useEffect(() => {
+    if (user && isAuthorized && !loading) {
+      navigate('/dashboard', { replace: true });
+    } else if (user && !isAuthorized && !loading) {
+      setError('Seu e-mail não está autorizado a acessar esta área. Entre em contato com o administrador.');
+      auth.signOut();
+    }
+  }, [user, isAuthorized, loading, navigate]);
+
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50">
+       <motion.div 
+          animate={{ rotate: 360 }}
+          transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+          className="w-10 h-10 border-4 border-brand-200 border-t-brand-600 rounded-full"
+        />
+    </div>
+  );
 
   const handleLogin = async () => {
     setIsSubmitting(true);
     setError(null);
     try {
       await signInWithGoogle();
-      navigate('/dashboard');
-    } catch (err) {
-      setError('Falha ao autenticar. Verifique sua conta e tente novamente.');
-    } finally {
+      // Auth state change will handle redirection or error via useEffect
+    } catch (err: any) {
+      console.error('Login error:', err);
+      if (err.code === 'auth/popup-closed-by-user') {
+        setError('A janela de login foi fechada antes de completar a autenticação.');
+      } else if (err.code === 'auth/unauthorized-domain') {
+        setError('Este domínio não está autorizado no Firebase. Adicione "diagnostico.venturatc.com.br" aos domínios autorizados no Console do Firebase.');
+      } else {
+        setError(`Erro ao autenticar: ${err.message || 'Por favor, tente novamente.'}`);
+      }
       setIsSubmitting(false);
     }
   };

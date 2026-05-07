@@ -10,7 +10,16 @@ service cloud.firestore {
     // --- Helper Functions ---
     function isSignedIn() { return request.auth != null; }
     function isAdmin() { 
-      return isSignedIn() && (request.auth.token.email == 'contato@venturatc.com.br' && request.auth.token.email_verified == true);
+      return isSignedIn() && (
+        (request.auth.token.email == 'contato@venturatc.com.br' && request.auth.token.email_verified == true) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.token.email)) && get(/databases/$(database)/documents/users/$(request.auth.token.email)).data.role == 'admin')
+      );
+    }
+    function isAuthorized() {
+      return isSignedIn() && (
+        (request.auth.token.email == 'contato@venturatc.com.br' && request.auth.token.email_verified == true) ||
+        exists(/databases/$(database)/documents/users/$(request.auth.token.email))
+      );
     }
     function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
     function incoming() { return request.resource.data; }
@@ -67,8 +76,8 @@ service cloud.firestore {
 
     // Users
     match /users/{userId} {
-      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
-      allow list: if isAdmin();
+      allow get: if isAuthorized() && (request.auth.token.email == userId || isAdmin());
+      allow list: if isAuthorized();
       allow create: if isAdmin() && isValidUser(incoming());
       allow update: if isAdmin() && isValidUser(incoming());
       allow delete: if isAdmin();
@@ -76,7 +85,7 @@ service cloud.firestore {
 
     // Companies
     match /companies/{companyId} {
-      allow read: if isAdmin();
+      allow read: if isAuthorized();
       allow create: if isAdmin() && isValidCompany(incoming());
       allow update: if isAdmin() && isValidCompany(incoming());
       allow delete: if isAdmin();
@@ -84,8 +93,8 @@ service cloud.firestore {
 
     // Campaigns
     match /campaigns/{campaignId} {
-      allow get: if isAdmin() || (resource.data.status == 'ativa');
-      allow list: if isAdmin() || (resource.data.status == 'ativa');
+      allow get: if isAuthorized() || (resource.data.status == 'ativa');
+      allow list: if isAuthorized() || (resource.data.status == 'ativa');
       allow create: if isAdmin() && isValidCampaign(incoming());
       allow update: if isAdmin() && isValidCampaign(incoming());
       allow delete: if isAdmin();
@@ -93,8 +102,8 @@ service cloud.firestore {
 
     // Company Responses
     match /company_responses/{responseId} {
-      allow get: if isAdmin();
-      allow list: if isAdmin();
+      allow get: if isAuthorized();
+      allow list: if isAuthorized();
       allow create: if (
         // Public submission allowed if campaign is active
         get(/databases/$(database)/documents/campaigns/$(incoming().campaignId)).data.status == 'ativa'
@@ -105,8 +114,8 @@ service cloud.firestore {
 
     // Employee Responses
     match /employee_responses/{responseId} {
-      allow read: if isAdmin();
-      allow list: if isAdmin();
+      allow read: if isAuthorized();
+      allow list: if isAuthorized();
       allow create: if (
         // Public submission allowed if campaign is active
         get(/databases/$(database)/documents/campaigns/$(incoming().campaignId)).data.status == 'ativa'

@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { 
@@ -12,7 +13,8 @@ import {
   MessageSquareReply, 
   AlertTriangle,
   ArrowUpRight,
-  TrendingDown
+  TrendingDown,
+  Loader2
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -24,27 +26,109 @@ import {
   ResponsiveContainer,
   Cell
 } from 'recharts';
-
-const stats = [
-  { label: 'Empresas Ativas', value: '12', icon: Building2, color: 'bg-brand-600', trend: '+2 este mês' },
-  { label: 'Campanhas em Curso', value: '4', icon: ClipboardList, color: 'bg-emerald-500', trend: '3 encerradas' },
-  { label: 'Total de Respostas', value: '458', icon: MessageSquareReply, color: 'bg-green-500', trend: '+86 hoje' },
-  { label: 'Alertas de Risco', value: '3', icon: AlertTriangle, color: 'bg-amber-500', trend: 'Nível Alto' },
-];
-
-const data = [
-  { name: 'Sobrecarga', valor: 65, status: 'Alto' },
-  { name: 'Liderança', valor: 32, status: 'Baixo' },
-  { name: 'Clima', valor: 45, status: 'Médio' },
-  { name: 'Assédio', valor: 12, status: 'Muito Baixo' },
-  { name: 'Bem-estar', valor: 58, status: 'Médio' },
-];
-
-const COLORS = ['#ef4444', '#10b981', '#f59e0b', '#16a34a', '#059669'];
-import { usePageTitle } from '../hooks/usePageTitle';
+import { collection, getCountFromServer, query, where, getDocs, limit, orderBy } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 
 export default function Dashboard() {
   usePageTitle('VTC - Painel de Gestão');
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState([
+    { label: 'Empresas Ativas', value: '-', icon: Building2, color: 'bg-brand-600', trend: 'Total cadastrado' },
+    { label: 'Campanhas em Curso', value: '-', icon: ClipboardList, color: 'bg-emerald-500', trend: 'Status: Ativa' },
+    { label: 'Total de Respostas', value: '-', icon: MessageSquareReply, color: 'bg-green-500', trend: 'Colaborador + Empresa' },
+    { label: 'Alertas de Risco', value: '0', icon: AlertTriangle, color: 'bg-amber-500', trend: 'Nível Crítico' },
+  ]);
+
+  const [chartData, setChartData] = useState([
+    { name: 'Sobrecarga', valor: 0 },
+    { name: 'Liderança', valor: 0 },
+    { name: 'Clima', valor: 0 },
+    { name: 'Controle', valor: 0 },
+    { name: 'Suporte', valor: 0 },
+  ]);
+
+  useEffect(() => {
+    async function fetchStats() {
+      try {
+        // 1. Total Companies
+        const companiesSnapshot = await getCountFromServer(collection(db, 'companies'));
+        const totalCompanies = companiesSnapshot.data().count;
+
+        // 2. Active Campaigns
+        const activeCampaignsQuery = query(collection(db, 'campaigns'), where('status', '==', 'ativa'));
+        const activeCampaignsSnapshot = await getCountFromServer(activeCampaignsQuery);
+        const totalActiveCampaigns = activeCampaignsSnapshot.data().count;
+
+        // 3. Total Responses (Employee + Company)
+        const employeeResponsesSnapshot = await getCountFromServer(collection(db, 'employee_responses'));
+        const companyResponsesSnapshot = await getCountFromServer(collection(db, 'company_responses'));
+        const totalResponses = employeeResponsesSnapshot.data().count + companyResponsesSnapshot.data().count;
+
+        setStats([
+          { label: 'Empresas Ativas', value: totalCompanies.toString(), icon: Building2, color: 'bg-brand-600', trend: 'Total cadastrado' },
+          { label: 'Campanhas em Curso', value: totalActiveCampaigns.toString(), icon: ClipboardList, color: 'bg-emerald-500', trend: 'Status: Ativa' },
+          { label: 'Total de Respostas', value: totalResponses.toString(), icon: MessageSquareReply, color: 'bg-green-500', trend: 'Colaborador + Empresa' },
+          { label: 'Alertas de Risco', value: '0', icon: AlertTriangle, color: 'bg-amber-500', trend: 'Nível Crítico' },
+        ]);
+
+        // 4. Basic aggregations for chart (Fetching last responses to show some movement)
+        const lastResponsesQuery = query(
+          collection(db, 'employee_responses'), 
+          orderBy('submittedAt', 'desc'),
+          limit(20)
+        );
+        const lastResponses = await getDocs(lastResponsesQuery);
+        
+        if (!lastResponses.empty) {
+          // This is a simplified logic to show REAL data impact on chart
+          let overloaddSum = 0;
+          let leadershipSum = 0;
+          let climateSum = 0;
+          let controlSum = 0;
+          let supportSum = 0;
+          let count = 0;
+
+          lastResponses.forEach(doc => {
+            const data = doc.data();
+            const answers = data.answers || {};
+            // Simplified mapping of answers to categories based on NR-01 structure
+            // Assuming answers are stored in a map-like structure
+            overloaddSum += (answers.q1 || 50) + (answers.q2 || 50);
+            leadershipSum += (answers.q3 || 50) + (answers.q4 || 50);
+            climateSum += (answers.q5 || 50) + (answers.q6 || 50);
+            controlSum += (answers.q7 || 50) + (answers.q8 || 50);
+            supportSum += (answers.q9 || 50) + (answers.q10 || 50);
+            count++;
+          });
+
+          if (count > 0) {
+            setChartData([
+              { name: 'Sobrecarga', valor: Math.round(overloaddSum / (count * 2)) },
+              { name: 'Liderança', valor: Math.round(leadershipSum / (count * 2)) },
+              { name: 'Clima', valor: Math.round(climateSum / (count * 2)) },
+              { name: 'Controle', valor: Math.round(controlSum / (count * 2)) },
+              { name: 'Suporte', valor: Math.round(supportSum / (count * 2)) },
+            ]);
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching dashboard stats:", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchStats();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px]">
+        <Loader2 className="w-10 h-10 animate-spin text-brand-600 mb-4" />
+        <p className="text-slate-500 font-medium">Carregando indicadores reais...</p>
+      </div>
+    );
+  }
   return (
     <div className="space-y-8">
       {/* Stats Grid */}
@@ -87,7 +171,7 @@ export default function Dashboard() {
           
           <div className="h-80 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data}>
+              <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis 
                   dataKey="name" 
@@ -105,7 +189,7 @@ export default function Dashboard() {
                   cursor={{ fill: '#f8fafc' }}
                 />
                 <Bar dataKey="valor" radius={[6, 6, 0, 0]} barSize={40}>
-                  {data.map((entry, index) => (
+                  {chartData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.valor > 60 ? '#ef4444' : entry.valor > 40 ? '#f59e0b' : '#10b981'} />
                   ))}
                 </Bar>

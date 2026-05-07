@@ -7,7 +7,7 @@ import { useState, useEffect } from 'react';
 import { 
   collection, 
   getDocs, 
-  addDoc, 
+  setDoc, 
   deleteDoc,
   doc,
   query, 
@@ -91,8 +91,9 @@ export default function SettingsPage() {
   const onSubmit = async (data: UserFormValues) => {
     setIsSubmitting(true);
     try {
-      await addDoc(collection(db, 'users'), {
+      await setDoc(doc(db, 'users', data.email.toLowerCase()), {
         ...data,
+        email: data.email.toLowerCase(),
         createdAt: serverTimestamp()
       });
       setIsModalOpen(false);

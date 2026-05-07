@@ -21,17 +21,17 @@ import MainLayout from './components/layout/MainLayout';
 import { Loader2 } from 'lucide-react';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, isAuthorized, loading } = useAuth();
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      <div className="flex items-center justify-center min-h-screen bg-slate-50">
+        <Loader2 className="w-10 h-10 animate-spin text-brand-600" />
       </div>
     );
   }
 
-  if (!user) {
+  if (!user || !isAuthorized) {
     return <Navigate to="/login" replace />;
   }
 

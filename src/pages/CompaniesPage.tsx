@@ -31,7 +31,7 @@ import {
   AlertCircle,
   BarChart3
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, validateCNPJ, formatCNPJ } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -41,7 +41,9 @@ import { useNavigate } from 'react-router-dom';
 const companySchema = z.object({
   razaoSocial: z.string().min(3, 'Mínimo 3 caracteres'),
   nomeFantasia: z.string().optional(),
-  cnpj: z.string().min(14, 'CNPJ inválido'),
+  cnpj: z.string().refine((val) => validateCNPJ(val), {
+    message: 'CNPJ inválido (Formato: 00.000.000/0001-00)',
+  }),
   cidade: z.string().min(2, 'Cidade obrigatória'),
   uf: z.string().length(2, 'UF deve ter 2 caracteres'),
   ramoAtividade: z.string().min(3, 'Obrigatório'),
@@ -60,6 +62,7 @@ export default function CompaniesPage() {
   const [companies, setCompanies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingCompany, setEditingCompany] = useState<any | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [isImporting, setIsImporting] = useState(false);
@@ -91,18 +94,68 @@ export default function CompaniesPage() {
   const onSubmit = async (data: CompanyFormValues) => {
     setIsSubmitting(true);
     try {
-      await addDoc(collection(db, 'companies'), {
-        ...data,
-        createdAt: serverTimestamp(),
-      });
+      if (editingCompany) {
+        // When updating, we must include all required fields by firestore.rules
+        await updateDoc(doc(db, 'companies', editingCompany.id), {
+          ...data,
+          createdAt: editingCompany.createdAt, // Stay with original createdAt as required by rules
+          updatedAt: serverTimestamp(),
+        });
+      } else {
+        await addDoc(collection(db, 'companies'), {
+          ...data,
+          createdAt: serverTimestamp(),
+        });
+      }
       setIsModalOpen(false);
+      setEditingCompany(null);
       reset();
       fetchCompanies();
     } catch (error) {
-       handleFirestoreError(error, OperationType.CREATE, 'companies');
+       handleFirestoreError(
+         error, 
+         editingCompany ? OperationType.UPDATE : OperationType.CREATE, 
+         'companies'
+       );
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const openCreateModal = () => {
+    setEditingCompany(null);
+    reset({
+      razaoSocial: '',
+      nomeFantasia: '',
+      cnpj: '',
+      cidade: '',
+      uf: '',
+      ramoAtividade: '',
+      numeroColaboradores: '',
+      responsavelNome: '',
+      responsavelEmail: '',
+      responsavelTelefone: '',
+      status: 'ativa'
+    });
+    setIsModalOpen(true);
+  };
+
+  const openEditModal = (company: any) => {
+    setEditingCompany(company);
+    reset({
+      razaoSocial: company.razaoSocial,
+      nomeFantasia: company.nomeFantasia || '',
+      cnpj: company.cnpj,
+      cidade: company.cidade,
+      uf: company.uf,
+      ramoAtividade: company.ramoAtividade,
+      numeroColaboradores: company.numeroColaboradores,
+      responsavelNome: company.responsavelNome,
+      responsavelEmail: company.responsavelEmail,
+      responsavelTelefone: company.responsavelTelefone || '',
+      status: company.status
+    });
+    setIsModalOpen(true);
   };
 
   const handleImportCSV = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -211,7 +264,7 @@ export default function CompaniesPage() {
             Importar Planilha
           </button>
           <button
-            onClick={() => setIsModalOpen(true)}
+            onClick={openCreateModal}
             className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all shadow-lg shadow-blue-100"
           >
             <CheckCircle2 className="w-5 h-5" /> Nova Empresa
@@ -282,7 +335,10 @@ export default function CompaniesPage() {
               </div>
 
               <div className="flex gap-2">
-                <button className="flex-1 py-2 text-sm font-bold text-slate-700 bg-slate-50 rounded-lg hover:bg-slate-100 transition-all border border-slate-100">
+                <button 
+                  onClick={() => openEditModal(company)}
+                  className="flex-1 py-2 text-sm font-bold text-slate-700 bg-slate-50 rounded-lg hover:bg-slate-100 transition-all border border-slate-100"
+                >
                   Editar
                 </button>
                 <button 
@@ -308,7 +364,9 @@ export default function CompaniesPage() {
               className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
             >
               <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                <h2 className="text-xl font-bold text-slate-900">Cadastrar Nova Empresa</h2>
+                <h2 className="text-xl font-bold text-slate-900">
+                  {editingCompany ? 'Editar Empresa' : 'Cadastrar Nova Empresa'}
+                </h2>
                 <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                   <X className="w-6 h-6" />
                 </button>
@@ -327,7 +385,16 @@ export default function CompaniesPage() {
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-bold text-slate-700">CNPJ</label>
-                    <input {...register('cnpj')} placeholder="00.000.000/0001-00" className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500" />
+                    <input 
+                      {...register('cnpj')} 
+                      placeholder="00.000.000/0001-00" 
+                      onChange={(e) => {
+                        const formatted = formatCNPJ(e.target.value);
+                        e.target.value = formatted;
+                        register('cnpj').onChange(e);
+                      }}
+                      className="w-full p-2.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500" 
+                    />
                     {errors.cnpj && <p className="text-xs text-red-500 font-medium">{errors.cnpj.message}</p>}
                   </div>
                   <div className="space-y-2">
@@ -371,7 +438,10 @@ export default function CompaniesPage() {
                 <div className="pt-4 border-t border-slate-100 flex justify-end gap-3">
                   <button
                     type="button"
-                    onClick={() => setIsModalOpen(false)}
+                    onClick={() => {
+                      setIsModalOpen(false);
+                      setEditingCompany(null);
+                    }}
                     className="px-6 py-2.5 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition-all"
                   >
                     Cancelar
@@ -382,7 +452,7 @@ export default function CompaniesPage() {
                     className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-2.5 rounded-xl font-bold transition-all flex items-center gap-2 disabled:opacity-50"
                   >
                     {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
-                    Salvar Empresa
+                    {editingCompany ? 'Atualizar Empresa' : 'Salvar Empresa'}
                   </button>
                 </div>
               </form>

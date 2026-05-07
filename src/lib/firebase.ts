@@ -14,11 +14,13 @@ export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
 export async function signInWithGoogle() {
+  console.log('Initiating Google sign in...');
   try {
     const result = await signInWithPopup(auth, googleProvider);
+    console.log('Sign in success:', result.user.email);
     return result.user;
-  } catch (error) {
-    console.error("Error signing in with Google", error);
+  } catch (error: any) {
+    console.error("Error signing in with Google:", error.code, error.message);
     throw error;
   }
 }
